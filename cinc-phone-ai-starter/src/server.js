@@ -1,0 +1,13 @@
+import express from "express";
+import { config } from "./config.js";
+import { buildAuthorizeUrl, exchangeCodeForToken } from "./cincAuth.js";
+import { getMe, getLeadById } from "./cincApi.js";
+import { findLeadMatches } from "./leadLookup.js";
+const app = express(); app.use(express.json());
+app.get("/health",(req,res)=>res.json({ok:true}));
+app.get("/oauth/start",(req,res)=>res.redirect(buildAuthorizeUrl()));
+app.post("/oauth/exchange", async (req,res)=>{ try{ const code = req.query.code || req.body?.code; if(!code) return res.status(400).json({error:"code required"}); await exchangeCodeForToken(String(code)); res.json({ok:true}); } catch(e){ res.status(500).json({error:e.message}); }});
+app.get("/test/me", async (req,res)=>{ try{ const me = await getMe(); res.json(me);} catch(e){ res.status(500).json({error:e.message}); }});
+app.get("/lead-lookup", async (req,res)=>{ try{ const {phone,email,maxPages} = req.query; if(!phone && !email) return res.status(400).json({error:"phone or email required"}); const matches = await findLeadMatches({phone,email,maxPages:Number(maxPages||10)}); res.json({matches}); } catch(e){ res.status(500).json({error:e.message}); }});
+app.get("/lead-recommendations", async (req,res)=>{ try{ const {lead_id,price_max,beds_min,keyword} = req.query; if(!lead_id) return res.status(400).json({error:"lead_id required"}); const data = await getLeadById(String(lead_id)); const arr = [...(data?.body?.lead?.listings?.favorited||[]),...(data?.body?.lead?.listings?.recommended||[])]; const kw = String(keyword||"").toLowerCase(); const ok = l => (!price_max||Number(l.price)<=Number(price_max)) && (!beds_min||Number(l.total_beds)>=Number(beds_min)) && (!kw||JSON.stringify(l).toLowerCase().includes(kw)); res.json({suggestions: arr.filter(ok).slice(0,2)}); } catch(e){ res.status(500).json({error:e.message}); }});
+app.listen(config.port, ()=> console.log(`Server on http://localhost:${config.port}`));
